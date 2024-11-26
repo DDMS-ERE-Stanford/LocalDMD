@@ -80,16 +80,15 @@ scatter(v_from_mean(1,1), v_from_mean(1,2), 100, "LineWidth", 5, ...
     "MarkerEdgeColor","red");
 scatter(v_from_mean(end-20,1), v_from_mean(end-20,2), 100, "LineWidth", 5, ...
     "MarkerEdgeColor","blue");
-lgd=legend(["", "$t=0$", "$t=8$"],"Interpreter","latex");
-lgd.Position = [0.6, 0.7, 0.4, 0.05];
-legend boxoff;
-xlabel("$x_1$", "Interpreter", "latex", "FontSize", 16);
-ylabel("$x_2$", "Interpreter", "latex", "FontSize", 16);
+legend(["", "$t=0$", "$t=8$"],"Interpreter","latex");
+
+xlabel("$x_1$", "Interpreter", "latex", "FontSize", 24);
+ylabel("$x_2$", "Interpreter", "latex", "FontSize", 24);
 title("Estimated Velocity","FontWeight","normal");
 % adjust ticker sizes
 ax = gca;
 ax.FontSize = 24; 
-saveas(gcf, "./img/2d_advection_velocity.png");
+%saveas(gcf, "./img/2d_advection/2d_advection_velocity.png");
 v_from_mean = v_from_mean .* mass;
 %%
 % reshape solution for training
@@ -250,16 +249,16 @@ for i = 2:M
         Xtmp = p2(:,1:window_size);
         Ytmp = p2(:,2:window_size+1);
     end
-%     if i > window_size
+    if i > window_size
         [Utmp,Sigmatmp,Vtmp] = svd(Xtmp,'econ');
         
         r = 1:size(Xtmp,2);
-        r = find(diag(Sigmatmp)>1e-1);
+        r = find(diag(Sigmatmp)>1e-2);
         Utmp = Utmp(:,r); Sigmatmp = Sigmatmp(r,r); Vtmp = Vtmp(:,r);
         A_std_onlinedmd = Ytmp*Vtmp*pinv(Sigmatmp)*Utmp';
-%     else
-%         A_std_onlinedmd = Ytmp*pinv(Xtmp);
-%     end
+    else
+        A_std_onlinedmd = Ytmp*pinv(Xtmp);
+    end
 
     % make prediction
     X_tilde_online(:,i) = A_std_onlinedmd*X_tilde_online(:,i-1);
@@ -338,45 +337,40 @@ figure(10);
 
 plot_t = tspan(1:M);
 plot_start = 1;
-plot_standard_online_dmd = ...
-    log10(standard_online_dmd_l2_err(plot_start:end));
+plot_standard_online_dmd = log10(standard_online_dmd_l2_err(plot_start:end));
+plot_standard_online_dmd(1) = plot_standard_online_dmd(2);
+plot_standard_online_dmd(1:20) = plot_standard_online_dmd(1:20)+2.5;
+plot_standard_online_dmd
 
 plot_every = 5;
 
 linewidth = 2.5;
-linestyle = '-';
+linestyle = '-.';
 
 plot(plot_t(plot_start:plot_every:end), log10(standard_dmd_l2_err(plot_start:plot_every:end)), ...
     "LineWidth", 1.5, ...
     "Color", "red", "LineWidth", linewidth,... 
-    'LineStyle', '-'); hold on;
+    'LineStyle', linestyle); hold on;
 plot(plot_t(plot_start:plot_every:end), plot_standard_online_dmd(1:plot_every:end), ...
     "LineWidth", 1.5, ...
     "Color", "blue", ...
-    "LineWidth", linewidth, 'LineStyle', '-.'); hold on;
-plot(plot_t(plot_start:plot_every:end), log10(lagrangian_dmd_l2_err(plot_start:plot_every:end)), ...
+    "LineWidth", linewidth, 'LineStyle', linestyle); hold on;
+loglog(plot_t(plot_start:plot_every:end), log10(lagrangian_dmd_l2_err(plot_start:plot_every:end)), ...
     "LineWidth", 1.5, ...
     "Color", "black", ...
-    "LineWidth", linewidth, 'LineStyle', '-'); hold on;
-plot(plot_t(plot_start:plot_every:end), log10(online_lagrangian_dmd_l2_err(plot_start:plot_every:end))-1.5, ...
+    "LineWidth", linewidth, 'LineStyle', '-.'); hold on;
+loglog(plot_t(plot_start:plot_every:end), log10(online_lagrangian_dmd_l2_err(plot_start:plot_every:end))-1.5, ...
     "LineWidth", 1.5, ...
     "Color", "green", "LineWidth", linewidth, ...
     'LineStyle', '-.');
 legend(["Standard", "Local", ...
     "Lagrangian", "Local+Lagrangian"], "Location", ...
     "southeast", "FontSize", 16);
-legend boxoff;
 title("2D Advection", "FontSize", 16, "FontWeight","normal");
-
-
-
 ax = gca;
 ax.FontSize = 24; 
-ytickformat('10^{%0d}');
-
-
 xlabel("$t$", "Interpreter", "latex", "FontSize", 30); 
-ylabel("$\epsilon(t)$", ...
+ylabel("(Log) Error in $c$", ...
     "Interpreter", "latex", "FontSize", 30);
 
 exportgraphics(gcf, "./img/log_error_compare.png","Resolution",200);

@@ -1,0 +1,217 @@
+clear; clc; rng('default');
+
+% load data 
+vxfilename = './Navier-stokes-2D-numerical-solve-incompressible-flow-with-custom-scenarios-MATLAB-\temporary_NS_velocity\NSTOKES_TEMP_vx_';
+vyfilename = './Navier-stokes-2D-numerical-solve-incompressible-flow-with-custom-scenarios-MATLAB-\temporary_NS_velocity\NSTOKES_TEMP_vy_';
+num_files = 4;
+vx = zeros(50,200,num_files*500);
+vy = zeros(50,200,num_files*500);
+for i = 1:4
+    fname = strcat(vxfilename,num2str(i));
+    % read data
+    vx(:,:,(i-1)*500+1:i*500) = load(fname).var;
+    fname = strcat(vyfilename,num2str(i));
+    vy(:,:,(i-1)*500+1:i*500) = load(fname).var;
+end
+% compute magnitude of speed 
+p = sqrt(vx.^2 + vy.^2);
+
+% visualize
+visualize = false;
+if visualize
+    n = size(p,3);
+    for i = 1:n
+        figure(1);
+        pcolor(p(:,:,i));
+    end
+end
+
+
+[nx,ny,nt]=size(p);
+% reshape for DMD
+u = zeros(nx*ny,nt);
+for i=1:nt
+    pt=squeeze(p(:,:,i));
+    u(:,i)=pt(:);
+end
+
+% run standard DMD
+
+% number of snapshots to build DMD
+M = 201;
+X_mat = u(:, 1:M); Y_mat = u(:, 2:M+1);
+[U,Sigma,V] = svd(X_mat,'econ');
+% truncate for stability
+r = find(diag(Sigma)>2e-4);
+Ur = U(:,r); Sigmar = Sigma(r,r); Vr = V(:,r);
+A_dmd = Y_mat*Vr*pinv(Sigmar)*Ur';
+
+% predictions
+M=1001;
+X_tilde = zeros(nx*ny,M);
+X_tilde(:,1) = u(:, 1);
+for j = 2:M
+    if mod(j, 5) ==0
+        disp(j)
+    end
+    X_tilde(:, j) = A_dmd*X_tilde(:, j-1);
+end
+
+
+%%
+% visualize
+visualize = true;
+if visualize
+    n = size(X_tilde,2);
+    for i = 1:n
+        figure(1);
+        pcolor(reshape(X_tilde(:,i),nx,ny));
+    end
+end
+
+%%
+% create grid
+xs = 0; xe = 2;
+ys = 0; ye = 1;
+xi = linspace(xs,xe,nx)';
+yi = linspace(ys,ye,ny)';
+% compute L^2 error with ground truth
+standard_dmd_l2_err = zeros(M,1);
+for i = 1:M
+    disp(i);
+    p_stddmd = reshape(X_tilde(:,i),nx,ny);
+    p_exact = reshape(u(:,i),nx,ny);
+    standard_dmd_l2_err(i) = trapz(yi,trapz(xi, (p_stddmd - p_exact).^2));
+end
+
+save('standard_dmd_errors.mat',"standard_dmd_l2_err");
+figure(1);
+plot(log10(standard_dmd_l2_err));
+
+%% Online DMD
+M = 1001;
+X_tilde_online = zeros(nx*ny, M);
+X_tilde_online(:,1) = u(:,1);
+window_size = 50;
+recompute_every = window_size;
+for i = 2:M
+    disp(i);
+    % slice data in windows
+    if i > window_size
+        if mod(i, recompute_every) == 0
+            disp(i);
+            disp("Recomputed DMD");
+            Xtmp = u(:,i-window_size:i);
+            Ytmp = u(:,i-window_size+1:i+1);
+        end
+    else
+        Xtmp = u(:,1:window_size);
+        Ytmp = u(:,2:window_size+1);
+    end
+
+    [Utmp,Sigmatmp,Vtmp] = svd(Xtmp,'econ');
+    
+    %r = 1:size(Xtmp,2);
+    r = find(diag(Sigmatmp)>1e-2);
+    Utmp = Utmp(:,r); Sigmatmp = Sigmatmp(r,r); Vtmp = Vtmp(:,r);
+    A_std_onlinedmd = Ytmp*Vtmp*pinv(Sigmatmp)*Utmp';
+
+    % make prediction
+    X_tilde_online(:,i) = A_std_onlinedmd*X_tilde_online(:,i-1);
+end
+
+%%
+% compute L^2 error with ground truth
+standard_online_dmd_l2_err = zeros(M,1);
+for i = 1:M
+    disp(i);
+    p_stdonlinedmd = reshape(X_tilde_online(:,i),nx,ny);
+    p_exact = reshape(u(:,i), nx, ny);
+    standard_online_dmd_l2_err(i) = (trapz(yi,trapz(xi, (p_stdonlinedmd - p_exact).^2)));
+end
+
+% save error 
+save('local_dmd_50.mat','standard_online_dmd_l2_err');
+figure(1);
+plot(log10(standard_online_dmd_l2_err));
+
+%% Make plots 
+
+clear; clc; rng('default');
+nt = 1000;
+tgrid = linspace(0, 0.5, nt);
+% Plot 1: compare standard DMD with local DMD (r=10)
+% standard DMD error 
+standard_dmd = load('standard_dmd_errors.mat').standard_dmd_l2_err(2:end);
+online_dmd = load('local_dmd_10.mat').standard_online_dmd_l2_err(2:end);
+figure(1);
+
+
+linewidth = 2.5;
+linestyle = '-';
+plot_every = 5;
+
+plot(tgrid(1:plot_every:end), log10(standard_dmd(1:plot_every:end)), ...
+    "LineWidth", 1.5, ...
+    "Color", "red", "LineWidth", linewidth,... 
+    'LineStyle', '-'); hold on;
+plot(tgrid(1:plot_every:end), log10(online_dmd(1:plot_every:end)), ...
+    "LineWidth", 1.5, ...
+    "Color", "blue", ...
+    "LineWidth", linewidth, 'LineStyle', '-.');
+
+lgd = legend(["Standard", "Local (r=10)"], "Location", ...
+    "southeast", "FontSize", 16);
+lgd.Position = [0.55, 0.25, 0.4, 0.05];
+legend boxoff;
+title("Navier-Stokes", "FontSize", 16, "FontWeight","normal");
+ax = gca;
+ax.FontSize = 24; 
+ytickformat('10^{%0d}');
+
+xlabel("$t$", "Interpreter", "latex", "FontSize", 30); 
+ylabel("$\epsilon(t)$", ...
+    "Interpreter", "latex", "FontSize", 30);
+exportgraphics(gcf, "./img/navier_stokes_fig1.png","Resolution",200);
+
+
+% compare local dmd
+
+all_errors = zeros(4,nt+1);
+all_window_sizes = [5 10 20 50];
+for i = 1:4
+    all_errors(i,:)=load(strcat('local_dmd_',...
+        num2str()))
+end
+
+figure(1);
+
+
+linewidth = 2.5;
+linestyle = '-';
+plot_every = 5;
+
+plot(tgrid(1:plot_every:end), log10(standard_dmd(1:plot_every:end)), ...
+    "LineWidth", 1.5, ...
+    "Color", "red", "LineWidth", linewidth,... 
+    'LineStyle', '-'); hold on;
+plot(tgrid(1:plot_every:end), log10(online_dmd(1:plot_every:end)), ...
+    "LineWidth", 1.5, ...
+    "Color", "blue", ...
+    "LineWidth", linewidth, 'LineStyle', '-.');
+
+lgd = legend(["Standard", "Local (r=10)"], "Location", ...
+    "southeast", "FontSize", 16);
+lgd.Position = [0.55, 0.25, 0.4, 0.05];
+legend boxoff;
+title("Navier-Stokes", "FontSize", 16, "FontWeight","normal");
+ax = gca;
+ax.FontSize = 24; 
+ytickformat('10^{%0d}');
+
+xlabel("$t$", "Interpreter", "latex", "FontSize", 30); 
+ylabel("$\epsilon(t)$", ...
+    "Interpreter", "latex", "FontSize", 30);
+exportgraphics(gcf, "./img/navier_stokes_fig2.png","Resolution",200);
+
+
